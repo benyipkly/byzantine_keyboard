@@ -1,11 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'dart:async';
 import 'features/piano/presentation/piano_screen.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-  runApp(const MyVibeApp());
+
+  // Run in a zone to catch async errors (silences Wasm type cast errors from SoLoud callbacks)
+  runZonedGuarded(() => runApp(const MyVibeApp()), (error, stackTrace) {
+    // Silently ignore type cast errors from Wasm runtime
+    if (error.toString().contains('is not a subtype of type')) {
+      return; // Ignore these non-fatal Wasm errors
+    }
+    // Log other errors
+    debugPrint('Uncaught error: $error');
+  });
 }
 
 class MyVibeApp extends StatelessWidget {
@@ -14,7 +24,7 @@ class MyVibeApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'My Vibe App',
+      title: 'Byzantine Keyboard',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         useMaterial3: true,

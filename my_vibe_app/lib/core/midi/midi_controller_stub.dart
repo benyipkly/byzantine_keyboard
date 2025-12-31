@@ -1,8 +1,10 @@
-/// Stub implementation for platforms that don't support MIDI
+/// Stub MIDI implementation for unsupported platforms
 library;
 
 import 'dart:async';
+
 import 'midi_controller_interface.dart';
+export 'midi_controller_interface.dart';
 
 /// Stub implementation that does nothing
 class MidiControllerImpl implements MidiControllerInterface {
@@ -24,7 +26,7 @@ class MidiControllerImpl implements MidiControllerInterface {
 
   @override
   Future<void> initialize() async {
-    // No MIDI support on this platform
+    // No-op on unsupported platforms
   }
 
   @override

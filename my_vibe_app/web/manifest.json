@@ -1,11 +1,11 @@
 {
-    "name": "my_vibe_app",
-    "short_name": "my_vibe_app",
+    "name": "Byzantine Keyboard",
+    "short_name": "ByzKeyboard",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#hex_code",
+    "theme_color": "#hex_code",
+    "description": "A Byzantine Keyboard that plays the Eight modes in their proper tuning.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

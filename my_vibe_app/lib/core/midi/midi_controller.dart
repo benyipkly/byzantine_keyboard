@@ -6,7 +6,7 @@ export 'midi_controller_interface.dart';
 
 // Conditional import: use web implementation on web, native otherwise
 import 'midi_controller_stub.dart'
-    if (dart.library.html) 'midi_controller_web.dart'
+    if (dart.library.js_interop) 'midi_controller_web.dart'
     if (dart.library.io) 'midi_controller_native.dart'
     as impl;
 

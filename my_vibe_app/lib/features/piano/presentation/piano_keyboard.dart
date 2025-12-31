@@ -338,6 +338,9 @@ class _PianoKeyboardState extends State<PianoKeyboard> {
   // 0 = Tuning, 1 = Reference
   int _activeTab = 0;
 
+  // User interaction flag for Web Audio Context
+  bool _hasUserInteracted = false;
+
   // MIDI Controller
   final MidiController _midiController = MidiController();
   StreamSubscription? _midiEventSubscription;
@@ -419,19 +422,27 @@ class _PianoKeyboardState extends State<PianoKeyboard> {
   }
 
   void _handleNoteOn(int index) {
-    if (!_pressedIndices.contains(index)) {
-      setState(() {
-        _pressedIndices.add(index);
-      });
-      _audioController.startNote(index, widget.instrumentType);
+    try {
+      if (!_pressedIndices.contains(index)) {
+        setState(() {
+          _pressedIndices.add(index);
+        });
+        _audioController.startNote(index, widget.instrumentType);
+      }
+    } catch (e) {
+      debugPrint('❌ _handleNoteOn error: $e');
     }
   }
 
   void _handleNoteOff(int index) {
-    setState(() {
-      _pressedIndices.remove(index);
-    });
-    _audioController.stopNote(index, widget.instrumentType);
+    try {
+      setState(() {
+        _pressedIndices.remove(index);
+      });
+      _audioController.stopNote(index, widget.instrumentType);
+    } catch (e) {
+      debugPrint('❌ _handleNoteOff error: $e');
+    }
   }
 
   final List<String> _noteNames = [
@@ -538,184 +549,235 @@ class _PianoKeyboardState extends State<PianoKeyboard> {
   Widget build(BuildContext context) {
     final bool isOrgan = widget.instrumentType == InstrumentType.organ;
 
-    return Column(
+    return Stack(
       children: [
-        // 1. Top Bar (Always Visible Control Header)
-        Container(
-          height: 50,
-          color: Colors.black45,
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          child: Row(
-            children: [
-              _buildInstrumentToggle(),
-              const SizedBox(width: 8),
-              // MIDI Connection Indicator
-              Tooltip(
-                message: _midiConnected
-                    ? 'MIDI Device Connected'
-                    : 'No MIDI Device',
-                child: Icon(
-                  Icons.usb,
-                  color: _midiConnected ? Colors.greenAccent : Colors.grey,
-                  size: 20,
-                ),
-              ),
-              if (isOrgan) ...[
-                const Spacer(),
-                TextButton.icon(
-                  onPressed: () {
-                    setState(() {
-                      _isPanelExpanded = !_isPanelExpanded;
-                    });
-                  },
-                  icon: Icon(
-                    _isPanelExpanded ? Icons.expand_less : Icons.expand_more,
-                    color: Colors.white,
+        // Main content
+        Column(
+          children: [
+            // 1. Top Bar (Always Visible Control Header)
+            Container(
+              height: 50,
+              color: Colors.black45,
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Row(
+                children: [
+                  _buildInstrumentToggle(),
+                  const SizedBox(width: 8),
+                  // MIDI Connection Indicator
+                  Tooltip(
+                    message: _midiConnected
+                        ? 'MIDI Device Connected'
+                        : 'No MIDI Device',
+                    child: Icon(
+                      Icons.usb,
+                      color: _midiConnected ? Colors.greenAccent : Colors.grey,
+                      size: 20,
+                    ),
                   ),
-                  label: Text(
-                    _isPanelExpanded ? 'Hide Controls' : 'Show Controls',
-                    style: const TextStyle(color: Colors.white),
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-
-        // 2. Collapsible Control Panel (Organ Mode Only)
-        if (isOrgan && _isPanelExpanded)
-          Container(
-            height: 220, // Fixed height for the panel
-            width: double.infinity,
-            decoration: const BoxDecoration(
-              color: Color(0xFF2C2C2C),
-              border: Border(
-                bottom: BorderSide(color: Colors.white12, width: 1),
-              ),
-            ),
-            child: Column(
-              children: [
-                // Tab Selection
-                Row(
-                  children: [
-                    Expanded(
-                      child: InkWell(
-                        onTap: () => setState(() => _activeTab = 0),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(vertical: 8),
-                          decoration: BoxDecoration(
-                            color: _activeTab == 0
-                                ? Colors.white10
-                                : Colors.transparent,
-                            border: Border(
-                              bottom: BorderSide(
-                                color: _activeTab == 0
-                                    ? Colors.orangeAccent
-                                    : Colors.transparent,
-                                width: 2,
-                              ),
-                            ),
-                          ),
-                          alignment: Alignment.center,
-                          child: const Text(
-                            'Tuning & Controls',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 12,
-                            ),
-                          ),
-                        ),
+                  if (isOrgan) ...[
+                    const Spacer(),
+                    TextButton.icon(
+                      onPressed: () {
+                        setState(() {
+                          _isPanelExpanded = !_isPanelExpanded;
+                        });
+                      },
+                      icon: Icon(
+                        _isPanelExpanded
+                            ? Icons.expand_less
+                            : Icons.expand_more,
+                        color: Colors.white,
+                      ),
+                      label: Text(
+                        _isPanelExpanded ? 'Hide Controls' : 'Show Controls',
+                        style: const TextStyle(color: Colors.white),
                       ),
                     ),
-                    Expanded(
-                      child: InkWell(
-                        onTap: () => setState(() => _activeTab = 1),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(vertical: 8),
-                          decoration: BoxDecoration(
-                            color: _activeTab == 1
-                                ? Colors.white10
-                                : Colors.transparent,
-                            border: Border(
-                              bottom: BorderSide(
-                                color: _activeTab == 1
-                                    ? Colors.orangeAccent
+                  ],
+                ],
+              ),
+            ),
+
+            // 2. Collapsible Control Panel (Organ Mode Only)
+            if (isOrgan && _isPanelExpanded)
+              Container(
+                height: 220, // Fixed height for the panel
+                width: double.infinity,
+                decoration: const BoxDecoration(
+                  color: Color(0xFF2C2C2C),
+                  border: Border(
+                    bottom: BorderSide(color: Colors.white12, width: 1),
+                  ),
+                ),
+                child: Column(
+                  children: [
+                    // Tab Selection
+                    Row(
+                      children: [
+                        Expanded(
+                          child: InkWell(
+                            onTap: () => setState(() => _activeTab = 0),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(vertical: 8),
+                              decoration: BoxDecoration(
+                                color: _activeTab == 0
+                                    ? Colors.white10
                                     : Colors.transparent,
-                                width: 2,
+                                border: Border(
+                                  bottom: BorderSide(
+                                    color: _activeTab == 0
+                                        ? Colors.orangeAccent
+                                        : Colors.transparent,
+                                    width: 2,
+                                  ),
+                                ),
+                              ),
+                              alignment: Alignment.center,
+                              child: const Text(
+                                'Tuning & Controls',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                ),
                               ),
                             ),
                           ),
-                          alignment: Alignment.center,
-                          child: const Text(
-                            'Echoi Reference',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 12,
+                        ),
+                        Expanded(
+                          child: InkWell(
+                            onTap: () => setState(() => _activeTab = 1),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(vertical: 8),
+                              decoration: BoxDecoration(
+                                color: _activeTab == 1
+                                    ? Colors.white10
+                                    : Colors.transparent,
+                                border: Border(
+                                  bottom: BorderSide(
+                                    color: _activeTab == 1
+                                        ? Colors.orangeAccent
+                                        : Colors.transparent,
+                                    width: 2,
+                                  ),
+                                ),
+                              ),
+                              alignment: Alignment.center,
+                              child: const Text(
+                                'Echoi Reference',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                ),
+                              ),
                             ),
                           ),
                         ),
+                      ],
+                    ),
+
+                    // Content Area
+                    Expanded(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.all(12),
+                        child: _activeTab == 0
+                            ? Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  _buildControlsRowContent(),
+                                  const SizedBox(height: 12),
+                                  if (_currentTuning.isNotEmpty)
+                                    _buildTuningInfoContent(),
+                                ],
+                              )
+                            : Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'Byzantine Echoi Reference — Genus by Melody Type',
+                                    style: TextStyle(
+                                      color: Colors.amber,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  _buildEchosReferenceContent(),
+                                ],
+                              ),
                       ),
                     ),
                   ],
                 ),
+              ),
 
-                // Content Area
-                Expanded(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.all(12),
-                    child: _activeTab == 0
-                        ? Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              _buildControlsRowContent(),
-                              const SizedBox(height: 12),
-                              if (_currentTuning.isNotEmpty)
-                                _buildTuningInfoContent(),
-                            ],
-                          )
-                        : Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                'Byzantine Echoi Reference — Genus by Melody Type',
-                                style: TextStyle(
-                                  color: Colors.amber,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 11,
-                                ),
-                              ),
-                              const SizedBox(height: 6),
-                              _buildEchosReferenceContent(),
-                            ],
-                          ),
+            // 3. Keyboard Layer
+            Expanded(
+              child: Container(
+                decoration: BoxDecoration(
+                  color: isOrgan ? const Color(0xFF3E2723) : Colors.black,
+                  gradient: isOrgan
+                      ? const LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [
+                            Color(0xFF5D4037),
+                            Color(0xFF3E2723),
+                            Color(0xFF281E1E),
+                          ],
+                        )
+                      : null,
+                ),
+                child: _buildKeyboard(isOrgan),
+              ),
+            ),
+          ],
+        ),
+        // Tap to Start Overlay
+        if (!_hasUserInteracted)
+          Positioned.fill(
+            child: GestureDetector(
+              onTap: () {
+                setState(() {
+                  _hasUserInteracted = true;
+                });
+              },
+              child: Container(
+                color: Colors.black.withOpacity(0.85),
+                child: Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.touch_app,
+                        size: 80,
+                        color: Colors.white.withOpacity(0.8),
+                      ),
+                      const SizedBox(height: 24),
+                      const Text(
+                        'Tap to Start',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 28,
+                          fontWeight: FontWeight.w300,
+                          letterSpacing: 2,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Enables audio playback',
+                        style: TextStyle(
+                          color: Colors.white.withOpacity(0.6),
+                          fontSize: 14,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-              ],
+              ),
             ),
           ),
-
-        // 3. Keyboard Layer
-        Expanded(
-          child: Container(
-            decoration: BoxDecoration(
-              color: isOrgan ? const Color(0xFF3E2723) : Colors.black,
-              gradient: isOrgan
-                  ? const LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [
-                        Color(0xFF5D4037),
-                        Color(0xFF3E2723),
-                        Color(0xFF281E1E),
-                      ],
-                    )
-                  : null,
-            ),
-            child: _buildKeyboard(isOrgan),
-          ),
-        ),
       ],
     );
   }

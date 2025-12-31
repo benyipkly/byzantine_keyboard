@@ -2,7 +2,7 @@
     <!-- USB MIDI device support -->
     <uses-feature android:name="android.hardware.usb.host" android:required="false" />
     <application
-        android:label="my_vibe_app"
+        android:label="Byzantine Keyboard"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

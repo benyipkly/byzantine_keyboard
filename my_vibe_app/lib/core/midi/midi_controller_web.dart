@@ -1,49 +1,13 @@
 /// Web MIDI implementation using browser's Web MIDI API
-/// This file is only imported on web platform via conditional imports
+/// Uses dart:js_interop_unsafe for simpler, more reliable property access
 library;
 
 import 'dart:async';
 import 'dart:js_interop';
-import 'package:web/web.dart' as web;
+import 'dart:js_interop_unsafe';
 
 import 'midi_controller_interface.dart';
-
-// JS interop extensions for MIDIInputMap iteration
-extension MIDIInputMapExt on web.MIDIInputMap {
-  @JS('values')
-  external JSObject _values();
-
-  List<web.MIDIInput> getInputs() {
-    final result = <web.MIDIInput>[];
-    final iterator = _values();
-    while (true) {
-      final next = (iterator as _JSIterator).next();
-      if (next.done) break;
-      final value = next.value;
-      if (value != null) {
-        result.add(value as web.MIDIInput);
-      }
-    }
-    return result;
-  }
-}
-
-@JS()
-@staticInterop
-class _JSIterator {}
-
-extension _JSIteratorExt on _JSIterator {
-  external _JSIteratorResult next();
-}
-
-@JS()
-@staticInterop
-class _JSIteratorResult {}
-
-extension _JSIteratorResultExt on _JSIteratorResult {
-  external bool get done;
-  external JSAny? get value;
-}
+export 'midi_controller_interface.dart';
 
 /// Web implementation of MidiController using browser's Web MIDI API
 class MidiControllerImpl implements MidiControllerInterface {
@@ -54,8 +18,9 @@ class MidiControllerImpl implements MidiControllerInterface {
   final _connectionController = StreamController<bool>.broadcast();
   final _midiEventController = StreamController<MidiEvent>.broadcast();
 
-  web.MIDIAccess? _midiAccess;
+  JSObject? _midiAccess;
   bool _isConnected = false;
+  final Set<String> _connectedInputIds = {};
 
   @override
   Stream<bool> get connectionStream => _connectionController.stream;
@@ -69,96 +34,161 @@ class MidiControllerImpl implements MidiControllerInterface {
   @override
   Future<void> initialize() async {
     try {
-      // Request MIDI access from browser
-      final navigator = web.window.navigator;
-      final midiPromise = navigator.requestMIDIAccess();
-      _midiAccess = await midiPromise.toDart;
+      print('🎹 Web MIDI: Requesting access...');
 
-      if (_midiAccess != null) {
-        _setupInputListeners();
+      // Get navigator.requestMIDIAccess()
+      final navigator = globalContext['navigator'] as JSObject?;
+      if (navigator == null) {
+        print('🎹 Web MIDI: navigator is null');
+        return;
       }
+
+      // Check if requestMIDIAccess exists
+      final requestMIDIAccess = navigator['requestMIDIAccess'];
+      if (requestMIDIAccess == null) {
+        print(
+          '🎹 Web MIDI: requestMIDIAccess not available (not supported or not secure context)',
+        );
+        return;
+      }
+
+      // Call requestMIDIAccess()
+      final promise = navigator.callMethod<JSPromise>('requestMIDIAccess'.toJS);
+      _midiAccess = await promise.toDart as JSObject?;
+
+      if (_midiAccess == null) {
+        print('🎹 Web MIDI: Access denied or null');
+        return;
+      }
+
+      print('🎹 Web MIDI: Access granted!');
+      _setupInputListeners();
     } catch (e) {
-      print('Web MIDI init error: $e');
+      print('🎹 Web MIDI init error: $e');
     }
   }
 
   void _setupInputListeners() {
-    final inputs = _midiAccess?.inputs;
-    if (inputs == null) return;
+    if (_midiAccess == null) return;
 
-    final inputList = inputs.getInputs();
-    for (final input in inputList) {
-      _connectInput(input);
+    print('🎹 Web MIDI: Setting up input listeners...');
+
+    // Get inputs map
+    final inputs = _midiAccess!['inputs'] as JSObject?;
+    if (inputs == null) {
+      print('🎹 Web MIDI: inputs is null');
+      return;
     }
 
-    if (inputList.isNotEmpty) {
-      _isConnected = true;
-      _connectionController.add(true);
-    }
+    // Iterate using forEach
+    _iterateInputsWithForEach(inputs);
 
-    // Listen for state changes (device connect/disconnect)
-    _midiAccess?.onstatechange = ((web.Event event) {
-      _handleStateChange();
+    // Listen for state changes
+    _midiAccess!['onstatechange'] = ((JSObject event) {
+      print('🎹 Web MIDI: State changed');
+      _onStateChange();
     }).toJS;
   }
 
-  void _handleStateChange() {
-    final inputs = _midiAccess?.inputs;
-    if (inputs == null) return;
+  void _iterateInputsWithForEach(JSObject inputsMap) {
+    try {
+      // Create a callback that receives (value, key, map)
+      final callback = ((JSObject input, JSAny key, JSAny map) {
+        _connectInput(input);
+      }).toJS;
 
-    final inputList = inputs.getInputs();
-    for (final input in inputList) {
-      _connectInput(input);
+      // Call forEach on the inputs map
+      inputsMap.callMethod('forEach'.toJS, callback);
+
+      if (_connectedInputIds.isNotEmpty) {
+        _isConnected = true;
+        _connectionController.add(true);
+        print('🎹 Web MIDI: Found ${_connectedInputIds.length} inputs');
+      } else {
+        print('🎹 Web MIDI: No inputs found');
+      }
+    } catch (e) {
+      print('🎹 Web MIDI: Error iterating inputs: $e');
+    }
+  }
+
+  void _onStateChange() {
+    final inputs = _midiAccess?['inputs'] as JSObject?;
+    if (inputs != null) {
+      _iterateInputsWithForEach(inputs);
     }
 
-    final hasInputs = inputList.isNotEmpty;
+    final hasInputs = _connectedInputIds.isNotEmpty;
     if (hasInputs != _isConnected) {
       _isConnected = hasInputs;
       _connectionController.add(hasInputs);
     }
   }
 
-  void _connectInput(web.MIDIInput input) {
-    input.onmidimessage = ((web.MIDIMessageEvent event) {
-      _handleMidiMessage(event);
-    }).toJS;
+  void _connectInput(JSObject input) {
+    try {
+      final inputId = (input['id'] as JSString?)?.toDart ?? '';
+      if (_connectedInputIds.contains(inputId)) return;
+
+      _connectedInputIds.add(inputId);
+
+      final name = (input['name'] as JSString?)?.toDart ?? 'Unknown';
+      print('🎹 Web MIDI: Connecting input: $inputId - $name');
+
+      // Set onmidimessage handler
+      input['onmidimessage'] = ((JSObject event) {
+        _handleMidiMessage(event);
+      }).toJS;
+    } catch (e) {
+      print('🎹 Web MIDI connect input error: $e');
+    }
   }
 
-  void _handleMidiMessage(web.MIDIMessageEvent event) {
-    final data = event.data;
-    if (data == null) return;
+  void _handleMidiMessage(JSObject event) {
+    try {
+      final data = event['data'];
+      if (data == null) return;
 
-    // Convert JSUint8Array to Dart List
-    final dartData = data.toDart;
-    if (dartData.length < 3) return;
+      // data is a Uint8Array - access as JSObject and get values
+      final dataObj = data as JSObject;
+      final length = (dataObj['length'] as JSNumber?)?.toDartInt ?? 0;
 
-    final status = dartData[0];
-    final note = dartData[1];
-    final velocity = dartData[2];
+      if (length < 3) return;
 
-    final command = status & 0xF0;
+      final status =
+          (dataObj.callMethod('at'.toJS, 0.toJS) as JSNumber?)?.toDartInt ?? 0;
+      final note =
+          (dataObj.callMethod('at'.toJS, 1.toJS) as JSNumber?)?.toDartInt ?? 0;
+      final velocity =
+          (dataObj.callMethod('at'.toJS, 2.toJS) as JSNumber?)?.toDartInt ?? 0;
 
-    if (command == 0x90) {
-      // Note On
-      if (velocity > 0) {
-        _midiEventController.add(
-          MidiEvent(
-            type: MidiEventType.noteOn,
-            noteNumber: note,
-            velocity: velocity,
-          ),
-        );
-      } else {
-        // Note On with velocity 0 = Note Off
+      final command = status & 0xF0;
+
+      if (command == 0x90) {
+        if (velocity > 0) {
+          _midiEventController.add(
+            MidiEvent(
+              type: MidiEventType.noteOn,
+              noteNumber: note,
+              velocity: velocity,
+            ),
+          );
+        } else {
+          _midiEventController.add(
+            MidiEvent(
+              type: MidiEventType.noteOff,
+              noteNumber: note,
+              velocity: 0,
+            ),
+          );
+        }
+      } else if (command == 0x80) {
         _midiEventController.add(
           MidiEvent(type: MidiEventType.noteOff, noteNumber: note, velocity: 0),
         );
       }
-    } else if (command == 0x80) {
-      // Note Off
-      _midiEventController.add(
-        MidiEvent(type: MidiEventType.noteOff, noteNumber: note, velocity: 0),
-      );
+    } catch (e) {
+      print('🎹 MIDI Message Error: $e');
     }
   }
 
