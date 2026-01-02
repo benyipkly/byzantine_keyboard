@@ -330,7 +330,6 @@ class _PianoKeyboardState extends State<PianoKeyboard> {
 
   // Scroll control for keyboard navigation
   double _scrollOffset = 0;
-  static const double _maxScrollOffset = 500;
 
   // Window States
   // Panel State
@@ -574,8 +573,27 @@ class _PianoKeyboardState extends State<PianoKeyboard> {
                       size: 20,
                     ),
                   ),
+                  const Spacer(),
+                  // Fullscreen Toggle
+                  IconButton(
+                    onPressed: _toggleFullScreen,
+                    icon: const Icon(Icons.fullscreen, color: Colors.white70),
+                    tooltip: 'Toggle Fullscreen',
+                  ),
                   if (isOrgan) ...[
-                    const Spacer(),
+                    const SizedBox(width: 8),
+                    // Vertical Space Hint
+                    if (_isPanelExpanded &&
+                        MediaQuery.of(context).size.height < 450)
+                      const Tooltip(
+                        message:
+                            'Screen height is low. Collapse controls for better view.',
+                        child: Icon(
+                          Icons.warning_amber_rounded,
+                          color: Colors.orange,
+                          size: 20,
+                        ),
+                      ),
                     TextButton.icon(
                       onPressed: () {
                         setState(() {
@@ -780,6 +798,17 @@ class _PianoKeyboardState extends State<PianoKeyboard> {
           ),
       ],
     );
+  }
+
+  void _toggleFullScreen() {
+    if (kIsWeb) {
+      // On Web, we can't easily force true fullscreen without user gesture + dart:html/js_interop
+      // But we can suggest the browser to hide UI or use PWA display modes.
+      // For now, we'll rely on SystemChrome which might help on mobile browsers.
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    } else {
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    }
   }
 
   Widget _buildInstrumentToggle() {
@@ -1132,18 +1161,46 @@ class _PianoKeyboardState extends State<PianoKeyboard> {
         final double availableHeight = constraints.maxHeight.isFinite
             ? constraints.maxHeight
             : 350;
+        final double availableWidth = constraints.maxWidth;
 
         // Account for the padding (10 on top + 10 on bottom = 20)
-        // If we don't subtract this, the stack will be larger than the container's content area
         final double contentHeight = availableHeight - 20;
 
         final double sliderHeight = isOrgan ? 140 : 0;
         final double keyboardHeight = contentHeight - sliderHeight;
 
-        final double whiteKeyHeight = keyboardHeight * 0.95;
-        final double whiteKeyWidth = whiteKeyHeight * 0.24;
-        final double blackKeyHeight = whiteKeyHeight * 0.6;
-        final double blackKeyWidth = whiteKeyWidth * 0.65;
+        // Standard size calculation
+        final double baseWhiteKeyHeight = keyboardHeight * 0.95;
+        final double baseWhiteKeyWidth = baseWhiteKeyHeight * 0.24;
+
+        // 22 white keys total in 3 octaves (C3-C6)
+        final double totalRequiredWidthAtBaseSize = baseWhiteKeyWidth * 22;
+
+        double finalWhiteKeyWidth;
+        double maxScrollExtent;
+        bool enableScroll;
+
+        if (totalRequiredWidthAtBaseSize <= availableWidth) {
+          // FIT: Expand keys to fill width
+          finalWhiteKeyWidth = availableWidth / 22;
+          maxScrollExtent = 0;
+          enableScroll = false;
+          _scrollOffset = 0;
+        } else {
+          // SCROLL: Use base size and scroll
+          finalWhiteKeyWidth = baseWhiteKeyWidth;
+          maxScrollExtent = totalRequiredWidthAtBaseSize - availableWidth;
+          enableScroll = true;
+        }
+
+        final double finalWhiteKeyHeight = baseWhiteKeyHeight;
+        final double finalBlackKeyHeight = finalWhiteKeyHeight * 0.6;
+        final double finalBlackKeyWidth = finalWhiteKeyWidth * 0.65;
+
+        // Ensure scroll offset is valid
+        if (_scrollOffset > maxScrollExtent) {
+          _scrollOffset = maxScrollExtent;
+        }
 
         List<Widget> whiteKeyStack = [];
         List<Widget> blackKeyStack = [];
@@ -1163,7 +1220,7 @@ class _PianoKeyboardState extends State<PianoKeyboard> {
           if (isOrgan) {
             sliderWithInput = SizedBox(
               height: sliderHeight,
-              width: black ? blackKeyWidth : whiteKeyWidth,
+              width: black ? finalBlackKeyWidth : finalWhiteKeyWidth,
               child: _MicrotonalSliderWithInput(
                 value: _moriaOffsets[i],
                 onChanged: (val) => _setMoriaOffset(i, val),
@@ -1182,8 +1239,8 @@ class _PianoKeyboardState extends State<PianoKeyboard> {
                 children: [
                   if (isOrgan) sliderWithInput!,
                   SizedBox(
-                    width: whiteKeyWidth,
-                    height: whiteKeyHeight,
+                    width: finalWhiteKeyWidth,
+                    height: finalWhiteKeyHeight,
                     child: _StyledPianoKey(
                       isBlack: false,
                       isScaleNote: isScaleNote,
@@ -1204,12 +1261,13 @@ class _PianoKeyboardState extends State<PianoKeyboard> {
               ),
             );
           } else {
+            // Calculate black key position relative to white keys
             int whiteKeysBefore = 0;
             for (int j = 0; j < i; j++) {
               if (!isBlack(j % 12)) whiteKeysBefore++;
             }
             final double leftPos =
-                whiteKeysBefore * whiteKeyWidth - (blackKeyWidth / 2);
+                whiteKeysBefore * finalWhiteKeyWidth - (finalBlackKeyWidth / 2);
 
             blackKeyStack.add(
               Positioned(
@@ -1219,8 +1277,8 @@ class _PianoKeyboardState extends State<PianoKeyboard> {
                   children: [
                     if (isOrgan) sliderWithInput!,
                     SizedBox(
-                      width: blackKeyWidth,
-                      height: blackKeyHeight,
+                      width: finalBlackKeyWidth,
+                      height: finalBlackKeyHeight,
                       child: _StyledPianoKey(
                         isBlack: true,
                         isScaleNote: isScaleNote,
@@ -1258,17 +1316,17 @@ class _PianoKeyboardState extends State<PianoKeyboard> {
           },
           child: Column(
             children: [
-              // Keyboard with horizontal drag scrolling
+              // Keyboard with optional horizontal drag scrolling
               Expanded(
                 child: GestureDetector(
-                  onHorizontalDragUpdate: (details) {
-                    setState(() {
-                      _scrollOffset = (_scrollOffset - details.delta.dx).clamp(
-                        0.0,
-                        _maxScrollOffset,
-                      );
-                    });
-                  },
+                  onHorizontalDragUpdate: enableScroll
+                      ? (details) {
+                          setState(() {
+                            _scrollOffset = (_scrollOffset - details.delta.dx)
+                                .clamp(0.0, maxScrollExtent);
+                          });
+                        }
+                      : null,
                   behavior: HitTestBehavior.translucent,
                   child: ClipRect(
                     child: OverflowBox(
@@ -1278,6 +1336,9 @@ class _PianoKeyboardState extends State<PianoKeyboard> {
                         offset: Offset(-_scrollOffset, 0),
                         child: Container(
                           height: availableHeight,
+                          width: enableScroll
+                              ? totalRequiredWidthAtBaseSize
+                              : availableWidth,
                           padding: const EdgeInsets.all(10),
                           child: Stack(
                             alignment: Alignment.topLeft,
@@ -1295,48 +1356,50 @@ class _PianoKeyboardState extends State<PianoKeyboard> {
                   ),
                 ),
               ),
-              // Scroll Position Indicator
-              SafeArea(
-                top: false,
-                child: Container(
-                  height: 24,
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Row(
-                    children: [
-                      const Icon(
-                        Icons.keyboard_arrow_left,
-                        color: Colors.white54,
-                        size: 16,
-                      ),
-                      Expanded(
-                        child: SliderTheme(
-                          data: SliderThemeData(
-                            trackHeight: 3,
-                            thumbShape: const RoundSliderThumbShape(
-                              enabledThumbRadius: 6,
+              // Scroll Position Indicator (Conditionally shown)
+              if (enableScroll)
+                SafeArea(
+                  top: false,
+                  child: Container(
+                    height: 24,
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.keyboard_arrow_left,
+                          color: Colors.white54,
+                          size: 16,
+                        ),
+                        Expanded(
+                          child: SliderTheme(
+                            data: SliderThemeData(
+                              trackHeight: 3,
+                              thumbShape: const RoundSliderThumbShape(
+                                enabledThumbRadius: 6,
+                              ),
+                              activeTrackColor: Colors.white38,
+                              inactiveTrackColor: Colors.white12,
+                              thumbColor: Colors.white70,
                             ),
-                            activeTrackColor: Colors.white38,
-                            inactiveTrackColor: Colors.white12,
-                            thumbColor: Colors.white70,
-                          ),
-                          child: Slider(
-                            value: _scrollOffset,
-                            min: 0,
-                            max: _maxScrollOffset,
-                            onChanged: (val) =>
-                                setState(() => _scrollOffset = val),
+                            child: Slider(
+                              value: _scrollOffset,
+                              min: 0,
+                              max: maxScrollExtent,
+                              onChanged: (val) =>
+                                  setState(() => _scrollOffset = val),
+                            ),
                           ),
                         ),
-                      ),
-                      const Icon(
-                        Icons.keyboard_arrow_right,
-                        color: Colors.white54,
-                        size: 16,
-                      ),
-                    ],
+                        const Icon(
+                          Icons.keyboard_arrow_right,
+                          color: Colors.white54,
+                          size: 16,
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ),
+              if (!enableScroll) const SizedBox(height: 24),
             ],
           ),
         );

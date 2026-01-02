@@ -144,22 +144,15 @@ class SoloudController {
         // Check if handle is still valid before stopping
         final isValid = _soloud.getIsValidVoiceHandle(handle);
         if (isValid) {
-          // Longer fade to avoid click: reduce volume in more steps over ~65ms
+          // Native fade out to prevent click (50ms)
+          const fadeDuration = Duration(milliseconds: 50);
           try {
-            _soloud.setVolume(handle, 0.6);
-            await Future.delayed(const Duration(milliseconds: 15));
-            _soloud.setVolume(handle, 0.3);
-            await Future.delayed(const Duration(milliseconds: 15));
-            _soloud.setVolume(handle, 0.1);
-            await Future.delayed(const Duration(milliseconds: 15));
-            _soloud.setVolume(handle, 0.02);
-            await Future.delayed(const Duration(milliseconds: 10));
-            _soloud.setVolume(handle, 0.0);
-            await Future.delayed(const Duration(milliseconds: 10));
+            _soloud.fadeVolume(handle, 0.0, fadeDuration);
+            _soloud.scheduleStop(handle, fadeDuration);
           } catch (e) {
-            // Ignore volume errors
+            // Fallback if fade/schedule fails
+            _soloud.stop(handle);
           }
-          _soloud.stop(handle);
         }
       } catch (e) {
         // Silently ignore stop errors - handle may already be invalid
